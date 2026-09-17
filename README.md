@@ -6,8 +6,13 @@ Rift Event tracker with a public shared alliance roster and an admin view.
 
 ```bash
 npm install
+npm run dev:api
 npm run dev
 ```
+
+Copy `.env.example` to `.env`, export its values in the API terminal, and replace
+the example key with a long random secret. Vite proxies local `/api` requests to
+the API on port 3001.
 
 The app loads the latest boss records and English names from the public
 `ggempire-data-cache` repository. Rift stage progress stays in each browser.
@@ -37,6 +42,36 @@ member to change their status; drag members or use the arrow buttons to reorder
 them. Admin edits for every boss/level remain in one browser draft. Use
 **Download JSON**, replace `src/data/roster.json` with that file in the workspace,
 and push `main`. Public clients read the published file every 15 seconds.
+
+## Alliance API
+
+The Node server receives an alliance snapshot at `POST /api/alliance`. Writes
+require `Authorization: Bearer <ALLIANCE_API_KEY>`. `GET /api/alliance` returns
+the latest snapshot and `GET /api/health` provides a health check.
+
+```bash
+curl -X POST http://localhost:3001/api/alliance \
+	-H "Authorization: Bearer $ALLIANCE_API_KEY" \
+	-H "Content-Type: application/json" \
+	-d '{
+		"members": ["Alice", "Bob"],
+		"attacks": [
+			{
+				"member": "Alice",
+				"target": "rift-12",
+				"timestamp": "2026-09-17T12:30:00Z"
+			}
+		]
+	}'
+```
+
+Every attack must reference a member in the same request and have a valid ISO
+8601 timestamp. `target` is optional. Data is written to `data/alliance.json` by
+default; set `ALLIANCE_DATA_FILE` to use another persistent location.
+
+GitHub Pages only hosts static files and cannot run this API. Deploy `npm start`
+to a Node-capable service with persistent storage and set `ALLIANCE_API_KEY` in
+that service's environment. Do not expose the key in browser code.
 
 ## GitHub Pages
 
