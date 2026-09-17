@@ -73,6 +73,44 @@ GitHub Pages only hosts static files and cannot run this API. Deploy `npm start`
 to a Node-capable service with persistent storage and set `ALLIANCE_API_KEY` in
 that service's environment. Do not expose the key in browser code.
 
+## Attack Watcher API
+
+A separate endpoint ingests incoming-attack events from a locally run watcher
+bot, one attack per request. Writes require HTTP Basic auth with
+`ATTACK_API_USERNAME` / `ATTACK_API_PASSWORD`. Each attack is upserted by `mid`,
+so retried submissions for the same movement overwrite the earlier record
+instead of duplicating it. Data is written to `data/attacks.json` by default;
+set `ATTACKS_DATA_FILE` to use another persistent location. The store keeps at
+most the most recent 2000 attacks.
+
+```bash
+curl -X POST http://localhost:3001/api/attacks \
+	-u "$ATTACK_API_USERNAME:$ATTACK_API_PASSWORD" \
+	-H "Content-Type: application/json" \
+	-d '{
+		"mid": 123456,
+		"rule_name": "(120,340)",
+		"kingdom": 0,
+		"x": 120,
+		"y": 340,
+		"attacker_oid": 987654,
+		"attacker_name": "SomePlayer",
+		"alliance_id": 42,
+		"alliance_name": "Some Alliance",
+		"is_own_alliance": false,
+		"attacker_attack_count": 3,
+		"total_attackers_on_target": 5,
+		"pt": 1800,
+		"tt": 3600,
+		"detected_at": "2026-09-17 20:18:21"
+	}'
+```
+
+`GET /api/attacks` is public and returns the stored attacks, newest first. Pass
+`?limit=50` to cap the number of results returned. Do not expose
+`ATTACK_API_PASSWORD` in browser code; only the watcher bot should hold it.
+
+
 ## GitHub Pages
 
 The included workflow deploys the `main` branch to GitHub Pages. In the

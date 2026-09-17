@@ -1,6 +1,7 @@
 node_modules/
 dist/
 data/alliance.json
+data/attacks.json
 .env
 .env.*
 !.env.example
