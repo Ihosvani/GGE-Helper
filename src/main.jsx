@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, FileUp, KeyRound, LogOut, RotateCcw, Shield, Swords, Users, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Shield, Swords, Users, X } from "lucide-react";
 import "./styles.css";
 
 const ITEMS_URL = "https://raw.githubusercontent.com/GeneralsCamp/ggempire-data-cache/main/public/data/empire/items_latest.json";
 const LANG_URL = "https://raw.githubusercontent.com/GeneralsCamp/ggempire-data-cache/main/public/data/lang/en.json";
 const ROSTER_API_URL = "https://api.github.com/repos/Ihosvani/GGE-Helper/contents/src/data/roster.json";
-const ADMIN_TOKEN_KEY = "gge-helper-github-token";
 const STORAGE_KEY = "gge-helper-rift-state-v1";
 const emptyProgress = { selectedBoss: "", selectedLevel: "", completedStages: {} };
 
@@ -25,47 +24,9 @@ function nameForBoss(boss, lang) {
   return lang[`are_boss_name_${boss.name}`] || boss.name;
 }
 
-function parseCsv(text) {
-  const lines = text.replace(/^\uFEFF/, "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!lines.length) return [];
-  const rows = lines.map((line) => line.split(",").map((cell) => cell.trim().replace(/^"|"$/g, "")));
-  const hasHeader = rows[0].some((cell) => /name|member|attack/i.test(cell));
-  return rows.slice(hasHeader ? 1 : 0).map((row) => ({
-    name: row[0],
-    attacked: /^(true|yes|1|attacked)$/i.test(row[1] || "")
-  })).filter((member) => member.name);
-}
-
-function parseAllianceJson(value) {
-  const members = [];
-  function visit(node) {
-    if (Array.isArray(node)) {
-      node.forEach(visit);
-      return;
-    }
-    if (!node || typeof node !== "object") return;
-    if (Array.isArray(node.M)) {
-      node.M.forEach((member) => {
-        if (typeof member?.N === "string" && member.N.trim()) members.push({ name: member.N.trim(), attacked: false });
-      });
-      return;
-    }
-    Object.values(node).forEach(visit);
-  }
-  visit(value);
-  return [...new Map(members.map((member) => [member.name, member])).values()];
-}
-
 function decodeGitHubContent(content) {
   const bytes = Uint8Array.from(atob(content.replace(/\n/g, "")), (character) => character.charCodeAt(0));
   return JSON.parse(new TextDecoder().decode(bytes));
-}
-
-function encodeGitHubContent(value) {
-  const bytes = new TextEncoder().encode(`${JSON.stringify(value, null, 2)}\n`);
-  let binary = "";
-  bytes.forEach((byte) => { binary += String.fromCharCode(byte); });
-  return btoa(binary);
 }
 
 function readSavedState() {
@@ -138,43 +99,7 @@ function App() {
     stages.forEach((stage) => delete next[stage.raidBossStageID]);
     updateProgress({ completedStages: next, currentStage: 0 });
   }
-  async function importMembers(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const text = String(reader.result || "");
-        const imported = file.name.toLowerCase().endsWith(".json") ? parseAllianceJson(JSON.parse(text)) : parseCsv(text);
-        if (!imported.length) throw new Error("No member names were found in that file.");
-        await saveRoster(imported);
-      } catch (importError) {
-        setRosterError(importError.message);
-      }
-    };
-    reader.readAsText(file);
-    event.target.value = "";
-  }
-  async function saveRoster(nextMembers) {
-    const token = localStorage.getItem(ADMIN_TOKEN_KEY);
-    if (!token) throw new Error("Add a GitHub token on the admin page first.");
-    const currentResponse = await fetch(`${ROSTER_API_URL}?ref=main&t=${Date.now()}`, { headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}` }, cache: "no-store" });
-    if (!currentResponse.ok) throw new Error("Could not access the roster file. Check the GitHub token.");
-    const currentFile = await currentResponse.json();
-    const roster = nextMembers.map(({ name, attacked }) => ({ name, attacked: Boolean(attacked) }));
-    const response = await fetch(ROSTER_API_URL, { method: "PUT", headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ message: "Update alliance roster", content: encodeGitHubContent(roster), sha: currentFile.sha, branch: "main" }) });
-    if (!response.ok) throw new Error("The roster update failed. The token needs Contents: Read and write access.");
-    setMembers(roster.map((member, index) => ({ ...member, id: index })));
-    setRosterError("");
-  }
-  async function markMembers(attacked) {
-    try { await saveRoster(members.map((member) => ({ ...member, attacked }))); } catch (updateError) { setRosterError(updateError.message); }
-  }
-  async function toggleMember(member) {
-    try { await saveRoster(members.map((current) => current.id === member.id ? { ...current, attacked: !current.attacked } : current)); } catch (updateError) { setRosterError(updateError.message); }
-  }
-
-  if (isAdminPath) return <AdminPage members={members} loading={rosterLoading} error={rosterError} onImport={importMembers} onToggle={toggleMember} onMark={markMembers} />;
+  if (isAdminPath) return <AdminPage members={members} loading={rosterLoading} error={rosterError} />;
 
   if (error) return <main className="loading-screen"><div className="brand-mark">GGE</div><h1>Rift Event data unavailable</h1><p>{error}</p><button className="button primary" onClick={() => window.location.reload()}>Retry</button></main>;
   if (!data) return <main className="loading-screen"><div className="brand-mark">GGE</div><div className="spinner" /><p>Loading the latest Rift Event data...</p></main>;
@@ -206,24 +131,11 @@ function Summary({ label, value, detail, icon }) { return <div className="summar
 function StageCard({ stage, index, active, complete, totalDefenders, capacity, stageCount, onToggle }) { const stageHealth = Math.round(100 / stageCount); const attacks = capacity ? Math.ceil(totalDefenders / stageCount / capacity) : 0; return <article className={`stage-card ${active ? "active" : ""} ${complete ? "complete" : ""}`}><div className="stage-card-top"><span className="stage-number">0{index + 1}</span><span className="stage-state">{complete ? "Cleared" : active ? "In progress" : "Queued"}</span></div><h3>Stage {index + 1}</h3><div className="health-line"><span>Health</span><strong>{stageHealth}%</strong></div><div className="health-bar"><span style={{ width: `${stageHealth}%` }} /></div><div className="stage-meta"><span>{formatNumber(attacks)} attacks est.</span><button className="check-button" onClick={onToggle} aria-label={`Mark stage ${index + 1} cleared`}>{complete && <Check size={15} />}</button></div></article>; }
 function DefenseList({ title, units }) { return <div className="defense-list"><h3>{title}</h3>{units.length ? units.map((unit) => <div className="unit-row" key={`${title}-${unit.id}`}><span>Unit {unit.id}</span><strong>{formatNumber(unit.amount)}</strong></div>) : <div className="unit-row muted">No units</div>}</div>; }
 function EffectList({ value }) { const effects = String(value || "").split(",").filter(Boolean); return <div className="effects-list"><h3>Defender battle effects</h3><div className="effect-chips">{effects.length ? effects.map((effect) => { const [id, amount] = effect.split("&"); return <span key={effect}>Effect {id} <strong>{amount}</strong></span>; }) : <span className="muted">No stage effects</span>}</div></div>; }
-function Roster({ members, onImport, onToggle, onMark, attackedCount, loading, error, compact = false, canEdit = false }) { return <section className={compact ? "roster-content compact" : "content roster-page"}><div className="hero-row"><div><p className="eyebrow">ALLIANCE OPERATIONS</p><h1>Who has attacked?</h1><p className="hero-copy">The shared alliance list updates for everyone.</p></div>{canEdit && <label className="button primary upload-button"><FileUp size={17} /> Import list<input type="file" accept=".csv,.json,text/csv,application/json" onChange={onImport} /></label>}</div><div className="roster-toolbar"><span><strong>{attackedCount}</strong> of {members.length} members marked attacked</span>{canEdit && <div><button className="text-button" onClick={() => onMark(false)}><RotateCcw size={15} /> Clear everyone</button><button className="text-button" onClick={() => onMark(true)}><Check size={15} /> Mark everyone</button></div>}</div>{error && <p className="notice error-notice">{error}</p>}{loading ? <div className="empty-roster"><div className="spinner" /><p>Loading the shared roster...</p></div> : members.length ? <div className="member-list">{members.map((member) => <button disabled={!canEdit} className={member.attacked ? "member-row attacked" : "member-row"} key={member.id} onClick={() => canEdit && onToggle(member)}><span className="member-avatar">{member.name.slice(0, 1).toUpperCase()}</span><span>{member.name}</span><span className="member-status">{member.attacked ? <><Check size={15} /> Attacked</> : "Awaiting attack"}</span></button>)}</div> : <div className="empty-roster"><Users size={28} /><h2>No alliance list yet</h2><p>{canEdit ? "Upload an alliance JSON or CSV list." : "The administrator has not uploaded a list yet."}</p></div>}</section>; }
+function Roster({ members, attackedCount, loading, error, compact = false }) { return <section className={compact ? "roster-content compact" : "content roster-page"}><div className="hero-row"><div><p className="eyebrow">ALLIANCE OPERATIONS</p><h1>Who has attacked?</h1><p className="hero-copy">The shared alliance list updates for everyone.</p></div></div><div className="roster-toolbar"><span><strong>{attackedCount}</strong> of {members.length} members marked attacked</span></div>{error && <p className="notice error-notice">{error}</p>}{loading ? <div className="empty-roster"><div className="spinner" /><p>Loading the shared roster...</p></div> : members.length ? <div className="member-list">{members.map((member) => <div className={member.attacked ? "member-row attacked" : "member-row"} key={member.id}><span className="member-avatar">{member.name.slice(0, 1).toUpperCase()}</span><span>{member.name}</span><span className="member-status">{member.attacked ? <><Check size={15} /> Attacked</> : "Awaiting attack"}</span></div>)}</div> : <div className="empty-roster"><Users size={28} /><h2>No alliance list yet</h2><p>The roster file is empty.</p></div>}</section>; }
 
-function AdminPage({ members, loading, error, onImport, onToggle, onMark }) {
-  const [token, setToken] = useState(() => localStorage.getItem(ADMIN_TOKEN_KEY) || "");
-  const [tokenSaved, setTokenSaved] = useState(() => Boolean(localStorage.getItem(ADMIN_TOKEN_KEY)));
-  function saveToken(event) {
-    event.preventDefault();
-    localStorage.setItem(ADMIN_TOKEN_KEY, token.trim());
-    setTokenSaved(Boolean(token.trim()));
-  }
-  function clearToken() {
-    localStorage.removeItem(ADMIN_TOKEN_KEY);
-    setToken("");
-    setTokenSaved(false);
-  }
-  if (!tokenSaved) return <main className="admin-login"><form className="admin-login-panel" onSubmit={saveToken}><KeyRound size={25} /><p className="eyebrow">ADMIN SETUP</p><h1>Connect GitHub</h1><p>Enter a fine-grained GitHub token with Contents read/write access to this repository. It stays in this browser.</p><label>GitHub token<input type="password" value={token} onChange={(event) => setToken(event.target.value)} required autoComplete="off" /></label><button className="button primary">Save token</button></form></main>;
+function AdminPage({ members, loading, error }) {
   const attackedCount = members.filter((member) => member.attacked).length;
-  return <div className="app-shell"><header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">GGE</div><div><strong>ROSTER ADMIN</strong><span>Shared controls</span></div></div><button className="text-button" onClick={clearToken}><LogOut size={16} /> Remove token</button></div></header><Roster members={members} attackedCount={attackedCount} loading={loading} error={error} onImport={onImport} onToggle={onToggle} onMark={onMark} canEdit /></div>;
+  return <div className="app-shell"><header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">GGE</div><div><strong>ROSTER ADMIN</strong><span>File-managed roster</span></div></div></div></header><Roster members={members} attackedCount={attackedCount} loading={loading} error={error} /></div>;
 }
 
 createRoot(document.getElementById("root")).render(<App />);

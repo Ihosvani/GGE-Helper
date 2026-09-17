@@ -26,16 +26,11 @@ Player One,false
 Player Two,true
 ```
 
-## Admin setup
+## Admin roster
 
-The first visit to `/GGE-Helper/admin` asks for a GitHub fine-grained personal
-access token. Create one for only the `Ihosvani/GGE-Helper` repository with
-**Repository permissions > Contents > Read and write**. The token is stored only
-in that browser's local storage and can be removed from the admin header.
-
-Each admin change updates `src/data/roster.json` on `main`, triggering a Pages
-deployment. Public clients also read the file directly from GitHub, so they see
-changes on their next refresh without waiting for the deployment.
+The `/GGE-Helper/admin` page opens directly and requires no token. To change a
+member's status, edit `src/data/roster.json` in the workspace and push `main`.
+Public clients read that file from GitHub every 15 seconds.
 
 ## GitHub Pages
 
