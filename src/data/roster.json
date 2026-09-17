@@ -1,4 +1,5 @@
-[
+{
+  "members": [
   { "name": "- LUIS ALFARO -", "attacked": false },
   { "name": "- ZENNITH -", "attacked": false },
   { "name": "- кαкαяoтo -", "attacked": false },
@@ -62,4 +63,6 @@
   { "name": "~SKIPPER260~", "attacked": false },
   { "name": "ㄨ Dє мσηтѕ ㄨ", "attacked": false },
   { "name": "ㄨVιηιιㄨ", "attacked": false }
-]
+  ],
+  "attacks": {}
+}

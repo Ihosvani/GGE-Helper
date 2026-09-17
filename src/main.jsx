@@ -30,6 +30,14 @@ function decodeGitHubContent(content) {
   return JSON.parse(new TextDecoder().decode(bytes));
 }
 
+function normalizeRoster(value) {
+  const sourceMembers = Array.isArray(value) ? value : value?.members || [];
+  return {
+    members: sourceMembers.map((member) => typeof member === "string" ? member : member?.name).filter(Boolean),
+    attacks: Array.isArray(value) ? {} : value?.attacks || {}
+  };
+}
+
 function readSavedState() {
   try { return { ...emptyProgress, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}").value }; } catch { return emptyProgress; }
 }
@@ -38,11 +46,12 @@ function App() {
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState(readSavedState);
-  const [members, setMembers] = useState([]);
+  const [roster, setRoster] = useState({ members: [], attacks: {} });
+  const [adminDraft, setAdminDraft] = useState(() => {
+    try { return normalizeRoster(JSON.parse(localStorage.getItem(ADMIN_DRAFT_KEY) || "null")); } catch { return { members: [], attacks: {} }; }
+  });
   const [rosterLoading, setRosterLoading] = useState(true);
   const [rosterError, setRosterError] = useState("");
-  const [activeTab, setActiveTab] = useState("rift");
-  const [showRoster, setShowRoster] = useState(false);
   const [loadedAt, setLoadedAt] = useState(null);
   const isAdminPath = /\/admin\/?$/.test(window.location.pathname);
 
@@ -64,7 +73,7 @@ function App() {
         if (!response.ok) throw new Error("The shared roster could not be loaded.");
         const file = await response.json();
         if (!active) return;
-        setMembers(decodeGitHubContent(file.content).map((member, index) => ({ ...member, id: index })));
+        setRoster(normalizeRoster(decodeGitHubContent(file.content)));
         setRosterError("");
       } catch (loadError) {
         if (active) setRosterError(loadError.message);
@@ -85,6 +94,10 @@ function App() {
   const levels = useMemo(() => (data?.items?.raidBossLevels || []).filter((level) => String(level.raidBossID) === String(selectedBoss?.raidBossID)), [data, selectedBoss]);
   const selectedLevel = levels.find((level) => String(level.raidBossLevelID) === String(progress.selectedLevel)) || levels[0];
   const stages = useMemo(() => (data?.items?.raidBossStages || []).filter((stage) => String(stage.raidBossLevelID) === String(selectedLevel?.raidBossLevelID)), [data, selectedLevel]);
+  const effectiveRoster = isAdminPath && adminDraft.members.length ? adminDraft : roster;
+  const rosterKey = `${selectedBoss?.raidBossID || ""}:${selectedLevel?.raidBossLevelID || ""}`;
+  const attackedNames = new Set(effectiveRoster.attacks[rosterKey] || []);
+  const members = effectiveRoster.members.map((name, index) => ({ id: index, name, attacked: attackedNames.has(name) }));
   const currentStageIndex = Math.min(progress.currentStage || 0, Math.max(stages.length - 1, 0));
   const currentStage = stages[currentStageIndex];
   const completed = stages.filter((stage) => progress.completedStages[stage.raidBossStageID]).length;
@@ -100,8 +113,43 @@ function App() {
     stages.forEach((stage) => delete next[stage.raidBossStageID]);
     updateProgress({ completedStages: next, currentStage: 0 });
   }
-  if (isAdminPath) return <AdminPage members={members} loading={rosterLoading} error={rosterError} />;
-
+  function updateAdminDraft(updater) {
+    setAdminDraft((currentDraft) => {
+      const nextDraft = updater(currentDraft.members.length ? currentDraft : roster);
+      localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify(nextDraft));
+      return nextDraft;
+    });
+  }
+  function toggleMember(index) {
+    const memberName = members[index].name;
+    updateAdminDraft((current) => {
+      const selectedNames = new Set(current.attacks[rosterKey] || []);
+      if (selectedNames.has(memberName)) selectedNames.delete(memberName);
+      else selectedNames.add(memberName);
+      return { ...current, attacks: { ...current.attacks, [rosterKey]: [...selectedNames] } };
+    });
+  }
+  function moveMember(sourceIndex, targetIndex) {
+    if (sourceIndex === targetIndex || targetIndex < 0 || targetIndex >= members.length) return;
+    updateAdminDraft((current) => {
+      const reordered = [...current.members];
+      const [movedMember] = reordered.splice(sourceIndex, 1);
+      reordered.splice(targetIndex, 0, movedMember);
+      return { ...current, members: reordered };
+    });
+  }
+  function resetAdminDraft() {
+    localStorage.removeItem(ADMIN_DRAFT_KEY);
+    setAdminDraft({ members: [], attacks: {} });
+  }
+  function downloadRoster() {
+    const content = `${JSON.stringify(effectiveRoster, null, 2)}\n`;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+    link.download = "roster.json";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
   if (error) return <main className="loading-screen"><div className="brand-mark">GGE</div><h1>Rift Event data unavailable</h1><p>{error}</p><button className="button primary" onClick={() => window.location.reload()}>Retry</button></main>;
   if (!data) return <main className="loading-screen"><div className="brand-mark">GGE</div><div className="spinner" /><p>Loading the latest Rift Event data...</p></main>;
 
@@ -114,17 +162,16 @@ function App() {
 
   return <div className="app-shell">
     <header className="topbar">
-      <div className="topbar-inner"><div className="brand"><div className="brand-mark">GGE</div><div><strong>GGE HELPER</strong><span>Rift Event command desk</span></div></div><div className="live-status"><span className="status-dot" /> Live data <small>{loadedAt?.toLocaleTimeString()}</small></div></div>
+      <div className="topbar-inner"><div className="brand"><div className="brand-mark">GGE</div><div><strong>{isAdminPath ? "GGE ADMIN" : "GGE HELPER"}</strong><span>{isAdminPath && adminDraft.members.length ? "Unsaved browser draft" : "Rift Event command desk"}</span></div></div>{isAdminPath ? <div className="admin-actions"><button className="text-button" disabled={!adminDraft.members.length} onClick={resetAdminDraft}><RotateCcw size={15} /> Reset</button><button className="button primary" onClick={downloadRoster}><Download size={16} /> Download JSON</button></div> : <div className="live-status"><span className="status-dot" /> Live data <small>{loadedAt?.toLocaleTimeString()}</small></div>}</div>
     </header>
-    <nav className="nav"><div className="nav-inner"><button className={activeTab === "rift" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("rift")}><Shield size={17} /> Rift Event</button><button className={activeTab === "roster" ? "nav-item active" : "nav-item"} onClick={() => setActiveTab("roster")}><Users size={17} /> Alliance roster <span className="nav-count">{members.length}</span></button></div></nav>
-    {activeTab === "roster" ? <Roster members={members} attackedCount={attackedMembers} loading={rosterLoading} error={rosterError} /> : <main className="content">
-      <section className="hero-row"><div><p className="eyebrow">RIFT RAID / BOSS CONTROL</p><h1>Track the fight, stage by stage.</h1><p className="hero-copy">A clear view of every courtyard, every defender, and the next attack your alliance needs.</p></div><button className="button roster-button" onClick={() => setShowRoster(true)}><Users size={17} /> Open roster <span>{attackedMembers}/{members.length}</span></button></section>
-      <section className="controls"><div className="control"><label>Boss</label><div className="select-wrap"><select value={selectedBoss?.raidBossID || ""} onChange={(event) => setBoss(event.target.value)}>{bosses.map((boss) => <option key={boss.raidBossID} value={boss.raidBossID}>{nameForBoss(boss, data.lang)}</option>)}</select><ChevronDown size={16} /></div></div><div className="control"><label>Boss level</label><div className="select-wrap"><select value={selectedLevel?.raidBossLevelID || ""} onChange={(event) => setLevel(event.target.value)}>{levels.map((level) => <option key={level.raidBossLevelID} value={level.raidBossLevelID}>Level {level.level}</option>)}</select><ChevronDown size={16} /></div></div><div className="control refresh-control"><span className="sync-label"><span className="status-dot" /> Latest source data</span><small>Saved locally in this browser</small></div></section>
+    <main className="content">
+      <section className="hero-row"><div><p className="eyebrow">RIFT RAID / BOSS CONTROL</p><h1>Track the fight, stage by stage.</h1><p className="hero-copy">Choose the active boss and level, then track exactly who has attacked it.</p></div></section>
+      <section className="controls"><div className="control"><label>Boss</label><div className="select-wrap"><select value={selectedBoss?.raidBossID || ""} onChange={(event) => setBoss(event.target.value)}>{bosses.map((boss) => <option key={boss.raidBossID} value={boss.raidBossID}>{nameForBoss(boss, data.lang)}</option>)}</select><ChevronDown size={16} /></div></div><div className="control"><label>Boss level</label><div className="select-wrap"><select value={selectedLevel?.raidBossLevelID || ""} onChange={(event) => setLevel(event.target.value)}>{levels.map((level) => <option key={level.raidBossLevelID} value={level.raidBossLevelID}>Level {level.level}</option>)}</select><ChevronDown size={16} /></div></div><div className="control refresh-control"><span className="sync-label"><span className="status-dot" /> {nameForBoss(selectedBoss, data.lang)} / Level {selectedLevel?.level}</span><small>{attackedMembers} of {members.length} attacked this target</small></div></section>
+      <Roster members={members} attackedCount={attackedMembers} loading={rosterLoading} error={rosterError} targetLabel={`${nameForBoss(selectedBoss, data.lang)} / Level ${selectedLevel?.level}`} compact editable={isAdminPath} onToggle={toggleMember} onMove={moveMember} />
       <section className="summary-grid"><Summary label="Courtyard defenders" value={formatNumber(totalDefenders)} detail={`${reserveUnits.length} unit types in reserve`} icon={<Users />} /><Summary label="Capacity per attack" value={formatNumber(capacity)} detail="From the selected level" icon={<Swords />} /><Summary label="Total attacks" value={formatNumber(attacksTotal)} detail={`${formatNumber(attacksPerStage)} estimated per stage`} icon={<Shield />} /><Summary label="Stage progress" value={`${completed}/${stages.length}`} detail="Completed in this level" icon={<Check />} /></section>
       <section className="stage-panel"><div className="panel-heading"><div><p className="eyebrow">HEALTH TRACKER</p><h2>Level {selectedLevel?.level} stages</h2></div><button className="text-button" onClick={clearStageProgress}><RotateCcw size={15} /> Reset this level</button></div><div className="progress-track">{stages.map((stage, index) => <button key={stage.raidBossStageID} className={progress.completedStages[stage.raidBossStageID] ? "progress-segment complete" : index === currentStageIndex ? "progress-segment current" : "progress-segment"} onClick={() => updateProgress({ currentStage: index })}><span>{index + 1}</span></button>)}</div><div className="stage-grid">{stages.map((stage, index) => <StageCard key={stage.raidBossStageID} stage={stage} index={index} stageCount={stages.length} active={index === currentStageIndex} complete={!!progress.completedStages[stage.raidBossStageID]} totalDefenders={totalDefenders} capacity={capacity} onToggle={() => toggleStage(stage.raidBossStageID)} />)}</div><div className="stage-nav"><button className="icon-button" disabled={currentStageIndex === 0} onClick={() => updateProgress({ currentStage: currentStageIndex - 1 })}><ChevronLeft size={18} /></button><span>Viewing stage {currentStageIndex + 1} of {stages.length}</span><button className="icon-button" disabled={currentStageIndex === stages.length - 1} onClick={() => updateProgress({ currentStage: currentStageIndex + 1 })}><ChevronRight size={18} /></button></div></section>
       <section className="details-grid"><div className="detail-panel"><div className="panel-heading compact"><div><p className="eyebrow">CURRENT STAGE</p><h2>Stage {currentStageIndex + 1} defender layout</h2></div><span className={progress.completedStages[currentStage?.raidBossStageID] ? "complete-pill" : "active-pill"}>{progress.completedStages[currentStage?.raidBossStageID] ? "Cleared" : "Active"}</span></div><div className="defense-columns"><DefenseList title="Left wall" units={parseUnits(currentStage?.leftWallUnits)} /><DefenseList title="Gate" units={parseUnits(currentStage?.frontWallUnits)} /><DefenseList title="Right wall" units={parseUnits(currentStage?.rightWallUnits)} /><DefenseList title="Courtyard reserve" units={reserveUnits} /></div><EffectList value={currentStage?.defenderBattleEffects} /></div><div className="detail-panel calculation"><div className="panel-heading compact"><div><p className="eyebrow">ATTACK PLAN</p><h2>Courtyard estimate</h2></div><Swords size={20} /></div><div className="formula"><strong>{formatNumber(attacksPerStage)}</strong><span>attacks / stage</span></div><p>Total reserve divided across {stages.length} stages, then rounded up to the nearest attack capacity.</p><button className={progress.completedStages[currentStage?.raidBossStageID] ? "button undo" : "button primary"} onClick={() => toggleStage(currentStage?.raidBossStageID)}>{progress.completedStages[currentStage?.raidBossStageID] ? <><X size={16} /> Reopen stage</> : <><Check size={16} /> Mark stage cleared</>}</button></div></section>
-    </main>}
-    {showRoster && <div className="modal-backdrop" onClick={() => setShowRoster(false)}><div className="roster-modal" onClick={(event) => event.stopPropagation()}><div className="panel-heading compact"><div><p className="eyebrow">LIVE ALLIANCE STATUS</p><h2>Alliance roster</h2></div><button className="icon-button" onClick={() => setShowRoster(false)}><X size={18} /></button></div><Roster members={members} attackedCount={attackedMembers} loading={rosterLoading} error={rosterError} compact /></div></div>}
+    </main>
   </div>;
 }
 
@@ -132,56 +179,14 @@ function Summary({ label, value, detail, icon }) { return <div className="summar
 function StageCard({ stage, index, active, complete, totalDefenders, capacity, stageCount, onToggle }) { const stageHealth = Math.round(100 / stageCount); const attacks = capacity ? Math.ceil(totalDefenders / stageCount / capacity) : 0; return <article className={`stage-card ${active ? "active" : ""} ${complete ? "complete" : ""}`}><div className="stage-card-top"><span className="stage-number">0{index + 1}</span><span className="stage-state">{complete ? "Cleared" : active ? "In progress" : "Queued"}</span></div><h3>Stage {index + 1}</h3><div className="health-line"><span>Health</span><strong>{stageHealth}%</strong></div><div className="health-bar"><span style={{ width: `${stageHealth}%` }} /></div><div className="stage-meta"><span>{formatNumber(attacks)} attacks est.</span><button className="check-button" onClick={onToggle} aria-label={`Mark stage ${index + 1} cleared`}>{complete && <Check size={15} />}</button></div></article>; }
 function DefenseList({ title, units }) { return <div className="defense-list"><h3>{title}</h3>{units.length ? units.map((unit) => <div className="unit-row" key={`${title}-${unit.id}`}><span>Unit {unit.id}</span><strong>{formatNumber(unit.amount)}</strong></div>) : <div className="unit-row muted">No units</div>}</div>; }
 function EffectList({ value }) { const effects = String(value || "").split(",").filter(Boolean); return <div className="effects-list"><h3>Defender battle effects</h3><div className="effect-chips">{effects.length ? effects.map((effect) => { const [id, amount] = effect.split("&"); return <span key={effect}>Effect {id} <strong>{amount}</strong></span>; }) : <span className="muted">No stage effects</span>}</div></div>; }
-function Roster({ members, attackedCount, loading, error, compact = false, editable = false, onToggle, onMove }) {
+function Roster({ members, attackedCount, loading, error, targetLabel, compact = false, editable = false, onToggle, onMove }) {
   function dropMember(event, targetIndex) {
     event.preventDefault();
     const sourceIndex = Number(event.dataTransfer.getData("text/plain"));
     if (Number.isInteger(sourceIndex)) onMove(sourceIndex, targetIndex);
   }
 
-  return <section className={compact ? "roster-content compact" : "content roster-page"}><div className="hero-row"><div><p className="eyebrow">ALLIANCE OPERATIONS</p><h1>Who has attacked?</h1><p className="hero-copy">{editable ? "Click a member to change status. Drag or use arrows to reorder." : "The shared alliance list updates for everyone."}</p></div></div><div className="roster-toolbar"><span><strong>{attackedCount}</strong> of {members.length} members marked attacked</span></div>{error && <p className="notice error-notice">{error}</p>}{loading ? <div className="empty-roster"><div className="spinner" /><p>Loading the shared roster...</p></div> : members.length ? <div className={`member-list ${editable ? "editable" : ""}`}>{members.map((member, index) => editable ? <div className={member.attacked ? "member-row attacked" : "member-row"} key={`${member.name}-${index}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropMember(event, index)}><GripVertical className="drag-handle" size={15} /><button className="member-toggle" onClick={() => onToggle(index)}><span className="member-name">{member.name}</span><span className="member-status">{member.attacked ? <><Check size={14} /> Attacked</> : "Awaiting"}</span></button><span className="move-buttons"><button className="move-button" disabled={index === 0} onClick={() => onMove(index, index - 1)} aria-label={`Move ${member.name} up`}><ChevronUp size={14} /></button><button className="move-button" disabled={index === members.length - 1} onClick={() => onMove(index, index + 1)} aria-label={`Move ${member.name} down`}><ChevronDown size={14} /></button></span></div> : <div className={member.attacked ? "member-row attacked" : "member-row"} key={`${member.name}-${index}`}><span className="member-name">{member.name}</span><span className="member-status">{member.attacked ? <><Check size={14} /> Attacked</> : "Awaiting"}</span></div>)}</div> : <div className="empty-roster"><Users size={28} /><h2>No alliance list yet</h2><p>The roster file is empty.</p></div>}</section>;
-}
-
-function AdminPage({ members, loading, error }) {
-  const [draft, setDraft] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(ADMIN_DRAFT_KEY) || "[]"); } catch { return []; }
-  });
-  const visibleMembers = draft.length ? draft : members;
-  const attackedCount = visibleMembers.filter((member) => member.attacked).length;
-
-  function updateDraft(updater) {
-    setDraft((currentDraft) => {
-      const nextDraft = updater(currentDraft.length ? currentDraft : members).map(({ name, attacked }) => ({ name, attacked }));
-      localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify(nextDraft));
-      return nextDraft;
-    });
-  }
-  function toggleMember(index) {
-    updateDraft((current) => current.map((member, memberIndex) => memberIndex === index ? { ...member, attacked: !member.attacked } : member));
-  }
-  function moveMember(sourceIndex, targetIndex) {
-    if (sourceIndex === targetIndex || targetIndex < 0 || targetIndex >= visibleMembers.length) return;
-    updateDraft((current) => {
-      const reordered = [...current];
-      const [movedMember] = reordered.splice(sourceIndex, 1);
-      reordered.splice(targetIndex, 0, movedMember);
-      return reordered;
-    });
-  }
-  function resetDraft() {
-    localStorage.removeItem(ADMIN_DRAFT_KEY);
-    setDraft([]);
-  }
-  function downloadRoster() {
-    const content = `${JSON.stringify(visibleMembers.map(({ name, attacked }) => ({ name, attacked })), null, 2)}\n`;
-    const link = document.createElement("a");
-    link.href = URL.createObjectURL(new Blob([content], { type: "application/json" }));
-    link.download = "roster.json";
-    link.click();
-    URL.revokeObjectURL(link.href);
-  }
-
-  return <div className="app-shell"><header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">GGE</div><div><strong>ROSTER ADMIN</strong><span>{draft.length ? "Unsaved browser draft" : "Published roster"}</span></div></div><div className="admin-actions"><button className="text-button" disabled={!draft.length} onClick={resetDraft}><RotateCcw size={15} /> Reset</button><button className="button primary" onClick={downloadRoster}><Download size={16} /> Download JSON</button></div></div></header><Roster members={visibleMembers} attackedCount={attackedCount} loading={loading} error={error} editable onToggle={toggleMember} onMove={moveMember} /></div>;
+  return <section className={compact ? "roster-content compact" : "content roster-page"}><div className="hero-row"><div><p className="eyebrow">ALLIANCE OPERATIONS</p><h1>{targetLabel}</h1><p className="hero-copy">{editable ? "Click a member to change status. Drag or use arrows to reorder." : "The shared alliance list updates for everyone."}</p></div></div><div className="roster-toolbar"><span><strong>{attackedCount}</strong> of {members.length} members marked attacked</span></div>{error && <p className="notice error-notice">{error}</p>}{loading ? <div className="empty-roster"><div className="spinner" /><p>Loading the shared roster...</p></div> : members.length ? <div className={`member-list ${editable ? "editable" : ""}`}>{members.map((member, index) => editable ? <div className={member.attacked ? "member-row attacked" : "member-row"} key={`${member.name}-${index}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropMember(event, index)}><GripVertical className="drag-handle" size={15} /><button className="member-toggle" onClick={() => onToggle(index)}><span className="member-name">{member.name}</span><span className="member-status">{member.attacked ? <><Check size={14} /> Attacked</> : "Awaiting"}</span></button><span className="move-buttons"><button className="move-button" disabled={index === 0} onClick={() => onMove(index, index - 1)} aria-label={`Move ${member.name} up`}><ChevronUp size={14} /></button><button className="move-button" disabled={index === members.length - 1} onClick={() => onMove(index, index + 1)} aria-label={`Move ${member.name} down`}><ChevronDown size={14} /></button></span></div> : <div className={member.attacked ? "member-row attacked" : "member-row"} key={`${member.name}-${index}`}><span className="member-name">{member.name}</span><span className="member-status">{member.attacked ? <><Check size={14} /> Attacked</> : "Awaiting"}</span></div>)}</div> : <div className="empty-roster"><Users size={28} /><h2>No alliance list yet</h2><p>The roster file is empty.</p></div>}</section>;
 }
 
 createRoot(document.getElementById("root")).render(<App />);

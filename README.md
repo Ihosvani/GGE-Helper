@@ -28,11 +28,15 @@ Player Two,true
 
 ## Admin roster
 
-The `/GGE-Helper/admin` page opens directly and requires no token. To change a
-member's status, click their row; drag members or use the arrow buttons to
-reorder them. Admin edits remain as a browser draft. Use **Download JSON**,
-replace `src/data/roster.json` with that file in the workspace, and push `main`.
-Public clients read the published file from GitHub every 15 seconds.
+The app uses one page for boss selection, level selection, the member roster,
+and the attack plan. Each boss and level combination has an independent attacked
+list. Switching either selector shows that target's saved status.
+
+The `/GGE-Helper/admin` page opens directly and requires no token. Click a
+member to change their status; drag members or use the arrow buttons to reorder
+them. Admin edits for every boss/level remain in one browser draft. Use
+**Download JSON**, replace `src/data/roster.json` with that file in the workspace,
+and push `main`. Public clients read the published file every 15 seconds.
 
 ## GitHub Pages
 
