@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Shield, Swords, Users, X } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, GripVertical, RotateCcw, Shield, Swords, Users, X } from "lucide-react";
 import "./styles.css";
 
 const ITEMS_URL = "https://raw.githubusercontent.com/GeneralsCamp/ggempire-data-cache/main/public/data/empire/items_latest.json";
 const LANG_URL = "https://raw.githubusercontent.com/GeneralsCamp/ggempire-data-cache/main/public/data/lang/en.json";
 const ROSTER_API_URL = "https://api.github.com/repos/Ihosvani/GGE-Helper/contents/src/data/roster.json";
+const ADMIN_DRAFT_KEY = "gge-helper-roster-draft-v1";
 const STORAGE_KEY = "gge-helper-rift-state-v1";
 const emptyProgress = { selectedBoss: "", selectedLevel: "", completedStages: {} };
 
@@ -131,11 +132,56 @@ function Summary({ label, value, detail, icon }) { return <div className="summar
 function StageCard({ stage, index, active, complete, totalDefenders, capacity, stageCount, onToggle }) { const stageHealth = Math.round(100 / stageCount); const attacks = capacity ? Math.ceil(totalDefenders / stageCount / capacity) : 0; return <article className={`stage-card ${active ? "active" : ""} ${complete ? "complete" : ""}`}><div className="stage-card-top"><span className="stage-number">0{index + 1}</span><span className="stage-state">{complete ? "Cleared" : active ? "In progress" : "Queued"}</span></div><h3>Stage {index + 1}</h3><div className="health-line"><span>Health</span><strong>{stageHealth}%</strong></div><div className="health-bar"><span style={{ width: `${stageHealth}%` }} /></div><div className="stage-meta"><span>{formatNumber(attacks)} attacks est.</span><button className="check-button" onClick={onToggle} aria-label={`Mark stage ${index + 1} cleared`}>{complete && <Check size={15} />}</button></div></article>; }
 function DefenseList({ title, units }) { return <div className="defense-list"><h3>{title}</h3>{units.length ? units.map((unit) => <div className="unit-row" key={`${title}-${unit.id}`}><span>Unit {unit.id}</span><strong>{formatNumber(unit.amount)}</strong></div>) : <div className="unit-row muted">No units</div>}</div>; }
 function EffectList({ value }) { const effects = String(value || "").split(",").filter(Boolean); return <div className="effects-list"><h3>Defender battle effects</h3><div className="effect-chips">{effects.length ? effects.map((effect) => { const [id, amount] = effect.split("&"); return <span key={effect}>Effect {id} <strong>{amount}</strong></span>; }) : <span className="muted">No stage effects</span>}</div></div>; }
-function Roster({ members, attackedCount, loading, error, compact = false }) { return <section className={compact ? "roster-content compact" : "content roster-page"}><div className="hero-row"><div><p className="eyebrow">ALLIANCE OPERATIONS</p><h1>Who has attacked?</h1><p className="hero-copy">The shared alliance list updates for everyone.</p></div></div><div className="roster-toolbar"><span><strong>{attackedCount}</strong> of {members.length} members marked attacked</span></div>{error && <p className="notice error-notice">{error}</p>}{loading ? <div className="empty-roster"><div className="spinner" /><p>Loading the shared roster...</p></div> : members.length ? <div className="member-list">{members.map((member) => <div className={member.attacked ? "member-row attacked" : "member-row"} key={member.id}><span className="member-avatar">{member.name.slice(0, 1).toUpperCase()}</span><span>{member.name}</span><span className="member-status">{member.attacked ? <><Check size={15} /> Attacked</> : "Awaiting attack"}</span></div>)}</div> : <div className="empty-roster"><Users size={28} /><h2>No alliance list yet</h2><p>The roster file is empty.</p></div>}</section>; }
+function Roster({ members, attackedCount, loading, error, compact = false, editable = false, onToggle, onMove }) {
+  function dropMember(event, targetIndex) {
+    event.preventDefault();
+    const sourceIndex = Number(event.dataTransfer.getData("text/plain"));
+    if (Number.isInteger(sourceIndex)) onMove(sourceIndex, targetIndex);
+  }
+
+  return <section className={compact ? "roster-content compact" : "content roster-page"}><div className="hero-row"><div><p className="eyebrow">ALLIANCE OPERATIONS</p><h1>Who has attacked?</h1><p className="hero-copy">{editable ? "Click a member to change status. Drag or use arrows to reorder." : "The shared alliance list updates for everyone."}</p></div></div><div className="roster-toolbar"><span><strong>{attackedCount}</strong> of {members.length} members marked attacked</span></div>{error && <p className="notice error-notice">{error}</p>}{loading ? <div className="empty-roster"><div className="spinner" /><p>Loading the shared roster...</p></div> : members.length ? <div className={`member-list ${editable ? "editable" : ""}`}>{members.map((member, index) => editable ? <div className={member.attacked ? "member-row attacked" : "member-row"} key={`${member.name}-${index}`} draggable onDragStart={(event) => event.dataTransfer.setData("text/plain", String(index))} onDragOver={(event) => event.preventDefault()} onDrop={(event) => dropMember(event, index)}><GripVertical className="drag-handle" size={15} /><button className="member-toggle" onClick={() => onToggle(index)}><span className="member-name">{member.name}</span><span className="member-status">{member.attacked ? <><Check size={14} /> Attacked</> : "Awaiting"}</span></button><span className="move-buttons"><button className="move-button" disabled={index === 0} onClick={() => onMove(index, index - 1)} aria-label={`Move ${member.name} up`}><ChevronUp size={14} /></button><button className="move-button" disabled={index === members.length - 1} onClick={() => onMove(index, index + 1)} aria-label={`Move ${member.name} down`}><ChevronDown size={14} /></button></span></div> : <div className={member.attacked ? "member-row attacked" : "member-row"} key={`${member.name}-${index}`}><span className="member-name">{member.name}</span><span className="member-status">{member.attacked ? <><Check size={14} /> Attacked</> : "Awaiting"}</span></div>)}</div> : <div className="empty-roster"><Users size={28} /><h2>No alliance list yet</h2><p>The roster file is empty.</p></div>}</section>;
+}
 
 function AdminPage({ members, loading, error }) {
-  const attackedCount = members.filter((member) => member.attacked).length;
-  return <div className="app-shell"><header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">GGE</div><div><strong>ROSTER ADMIN</strong><span>File-managed roster</span></div></div></div></header><Roster members={members} attackedCount={attackedCount} loading={loading} error={error} /></div>;
+  const [draft, setDraft] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(ADMIN_DRAFT_KEY) || "[]"); } catch { return []; }
+  });
+  const visibleMembers = draft.length ? draft : members;
+  const attackedCount = visibleMembers.filter((member) => member.attacked).length;
+
+  function updateDraft(updater) {
+    setDraft((currentDraft) => {
+      const nextDraft = updater(currentDraft.length ? currentDraft : members).map(({ name, attacked }) => ({ name, attacked }));
+      localStorage.setItem(ADMIN_DRAFT_KEY, JSON.stringify(nextDraft));
+      return nextDraft;
+    });
+  }
+  function toggleMember(index) {
+    updateDraft((current) => current.map((member, memberIndex) => memberIndex === index ? { ...member, attacked: !member.attacked } : member));
+  }
+  function moveMember(sourceIndex, targetIndex) {
+    if (sourceIndex === targetIndex || targetIndex < 0 || targetIndex >= visibleMembers.length) return;
+    updateDraft((current) => {
+      const reordered = [...current];
+      const [movedMember] = reordered.splice(sourceIndex, 1);
+      reordered.splice(targetIndex, 0, movedMember);
+      return reordered;
+    });
+  }
+  function resetDraft() {
+    localStorage.removeItem(ADMIN_DRAFT_KEY);
+    setDraft([]);
+  }
+  function downloadRoster() {
+    const content = `${JSON.stringify(visibleMembers.map(({ name, attacked }) => ({ name, attacked })), null, 2)}\n`;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+    link.download = "roster.json";
+    link.click();
+    URL.revokeObjectURL(link.href);
+  }
+
+  return <div className="app-shell"><header className="topbar"><div className="topbar-inner"><div className="brand"><div className="brand-mark">GGE</div><div><strong>ROSTER ADMIN</strong><span>{draft.length ? "Unsaved browser draft" : "Published roster"}</span></div></div><div className="admin-actions"><button className="text-button" disabled={!draft.length} onClick={resetDraft}><RotateCcw size={15} /> Reset</button><button className="button primary" onClick={downloadRoster}><Download size={16} /> Download JSON</button></div></div></header><Roster members={visibleMembers} attackedCount={attackedCount} loading={loading} error={error} editable onToggle={toggleMember} onMove={moveMember} /></div>;
 }
 
 createRoot(document.getElementById("root")).render(<App />);

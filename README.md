@@ -29,8 +29,10 @@ Player Two,true
 ## Admin roster
 
 The `/GGE-Helper/admin` page opens directly and requires no token. To change a
-member's status, edit `src/data/roster.json` in the workspace and push `main`.
-Public clients read that file from GitHub every 15 seconds.
+member's status, click their row; drag members or use the arrow buttons to
+reorder them. Admin edits remain as a browser draft. Use **Download JSON**,
+replace `src/data/roster.json` with that file in the workspace, and push `main`.
+Public clients read the published file from GitHub every 15 seconds.
 
 ## GitHub Pages
 
