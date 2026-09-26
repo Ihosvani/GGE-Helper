@@ -1,0 +1,13 @@
+node_modules/
+dist/
+data/alliance.json
+data/attacks.json
+.env
+.env.*
+!.env.example
+*.local
+# Local automation bot: keep the code, ignore raw scan dumps/captures (large and account-specific).
+gge bot/network-automation-bot/data/
+gge bot/network-automation-bot/captures/
+gge bot/network-automation-bot/Attack example with dendi account.json
+gge bot/network-automation-bot/**/__pycache__/
