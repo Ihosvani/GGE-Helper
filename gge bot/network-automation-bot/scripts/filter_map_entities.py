@@ -1,30 +1,50 @@
-"""Filter data/entities.json down to the rows the website tracker needs.
-
-The raw scan dump is dominated by "tower" rows (tens of thousands) that the
-website ignores. This keeps only dragon/fortress/ice fortress rows and writes
-them to the frontend's public/ folder so the site can fetch a small JSON file
-at runtime instead of bundling the entire raw dump. Run this after the bot
-updates data/entities.json, before publishing the site.
-"""
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-SOURCE_PATH = ROOT / "data" / "entities.json"
-REPO_ROOT = ROOT.parent.parent
-OUTPUT_PATH = REPO_ROOT / "public" / "data" / "map-entities.json"
+# Change this to your source JSON filename
+SOURCE_FILE = Path(__file__).parent / "../data/entities.json"
 
-TRACKED_KINDS = {"fortress", "dragon", "ice fortress"}
+# Output will be created in the SAME folder
+OUTPUT_FILE = SOURCE_FILE.parent / "../../../public/data/map-entities.json"
+
+# Entity names we want to keep
+ALLOWED_NAMES = {
+    "dragon",
+    "fortress",
+    "ice fortress",
+}
 
 
-def main() -> None:
-    entities = json.loads(SOURCE_PATH.read_text(encoding="utf-8"))
-    filtered = {key: value for key, value in entities.items() if value.get("kind") in TRACKED_KINDS}
+def extract_map_entities():
+    # Load original JSON
+    with SOURCE_FILE.open("r", encoding="utf-8") as f:
+        data = json.load(f)
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(json.dumps(filtered, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {len(filtered)} of {len(entities)} entities to {OUTPUT_PATH}")
+    filtered = {}
+
+    for key, info in data.items():
+        # Example:
+        # "1:fortress:1004:263"
+        # "3:dragon:341:341"
+        # "2:ice fortress:1004:1004"
+
+        parts = key.split(":")
+
+        if len(parts) < 4:
+            continue
+
+        entity_name = parts[1].strip().lower()
+
+        if entity_name in ALLOWED_NAMES:
+            filtered[key] = info
+
+    # Save filtered entities
+    with OUTPUT_FILE.open("w", encoding="utf-8") as f:
+        json.dump(filtered, f, indent=2, ensure_ascii=False)
+
+    print(f"Found {len(filtered)} matching entities.")
+    print(f"Saved to: {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":
-    main()
+    extract_map_entities()

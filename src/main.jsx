@@ -16,7 +16,7 @@ const MAP_ENTITIES_URL = `${import.meta.env.BASE_URL}data/map-entities.json`;
 const TRACKED_KINDS = ["fortress", "dragon", "ice fortress"];
 const KIND_LABEL_KEYS = { fortress: "kind_fortress", dragon: "kind_dragon", "ice fortress": "kind_ice_fortress" };
 const TRACKER_PAGE_SIZE = 20;
-
+const KIND_LABELS = ["Dragon", "Dessert Fortress", "Ice Fortress"];
 // UI chrome translations only - boss/unit/effect names come from the external
 // (English-only) game data cache and are not covered here.
 const UI_STRINGS = {
